@@ -2,8 +2,13 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { renderWechatArticle } from "@/src/article/format";
+import { isWechatPublishingEnabled } from "@/src/config/env";
 import { toolHandler } from "@/src/mcp/result";
-import { riskyDryRunResult, shouldExecuteRiskyAction } from "@/src/safety/confirm";
+import {
+  disabledRiskyActionResult,
+  riskyDryRunResult,
+  shouldExecuteRiskyAction,
+} from "@/src/safety/confirm";
 import { createWechatClient, type DraftArticle } from "@/src/wechat/client";
 
 const articleFields = {
@@ -205,6 +210,121 @@ export function registerWechatTools(server: McpServer) {
       }
       return createWechatClient().deleteDraft(input.mediaId);
     }),
+  );
+
+  server.registerTool(
+    "wechat_publish_draft",
+    {
+      title: "Publish draft",
+      description:
+        "Publish a WeChat draft by media_id. High-risk operation, disabled unless WECHAT_ENABLE_PUBLISH=true, dry-run by default, and requires confirm: true.",
+      inputSchema: {
+        mediaId: z.string().min(1),
+        confirm: z.boolean().default(false),
+        dryRun: z.boolean().default(true),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: true,
+      },
+    },
+    toolHandler((input: { mediaId: string; confirm?: boolean; dryRun?: boolean }) => {
+      const payload = { mediaId: input.mediaId };
+      if (!isWechatPublishingEnabled()) {
+        return disabledRiskyActionResult("wechat_publish_draft", payload);
+      }
+      if (!shouldExecuteRiskyAction(input)) {
+        return riskyDryRunResult("wechat_publish_draft", payload);
+      }
+      return createWechatClient().publishDraft(input.mediaId);
+    }),
+  );
+
+  server.registerTool(
+    "wechat_get_publish_status",
+    {
+      title: "Get publish status",
+      description:
+        "Get the status of a WeChat freepublish operation by publish_id.",
+      inputSchema: {
+        publishId: z.string().min(1),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: true,
+      },
+    },
+    toolHandler((input: { publishId: string }) =>
+      createWechatClient().getPublishStatus(input.publishId),
+    ),
+  );
+
+  server.registerTool(
+    "wechat_list_published_articles",
+    {
+      title: "List published articles",
+      description:
+        "List successfully published WeChat articles. Use noContent=true for lighter responses.",
+      inputSchema: {
+        offset: z.number().int().min(0).default(0),
+        count: z.number().int().min(1).max(20).default(20),
+        noContent: z.boolean().default(true),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: true,
+      },
+    },
+    toolHandler((input: { offset?: number; count?: number; noContent?: boolean }) =>
+      createWechatClient().listPublishedArticles({
+        offset: input.offset ?? 0,
+        count: input.count ?? 20,
+        noContent: input.noContent === false ? 0 : 1,
+      }),
+    ),
+  );
+
+  server.registerTool(
+    "wechat_delete_published_article",
+    {
+      title: "Delete published article",
+      description:
+        "Delete a published WeChat article by article_id. High-risk operation, disabled unless WECHAT_ENABLE_PUBLISH=true, dry-run by default, and requires confirm: true.",
+      inputSchema: {
+        articleId: z.string().min(1),
+        index: z.number().int().min(0).optional(),
+        confirm: z.boolean().default(false),
+        dryRun: z.boolean().default(true),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: true,
+      },
+    },
+    toolHandler(
+      (input: {
+        articleId: string;
+        index?: number;
+        confirm?: boolean;
+        dryRun?: boolean;
+      }) => {
+        const payload = { articleId: input.articleId, index: input.index };
+        if (!isWechatPublishingEnabled()) {
+          return disabledRiskyActionResult(
+            "wechat_delete_published_article",
+            payload,
+          );
+        }
+        if (!shouldExecuteRiskyAction(input)) {
+          return riskyDryRunResult("wechat_delete_published_article", payload);
+        }
+        return createWechatClient().deletePublishedArticle(payload);
+      },
+    ),
   );
 
   server.registerTool(

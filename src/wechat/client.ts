@@ -207,6 +207,45 @@ export class WechatClient {
     });
   }
 
+  publishDraft(mediaId: string) {
+    return this.json<{ publish_id: string }>("/cgi-bin/freepublish/submit", {
+      method: "POST",
+      body: { media_id: mediaId },
+    });
+  }
+
+  getPublishStatus(publishId: string) {
+    return this.json("/cgi-bin/freepublish/get", {
+      method: "POST",
+      body: { publish_id: publishId },
+    });
+  }
+
+  listPublishedArticles(input: {
+    offset: number;
+    count: number;
+    noContent?: 0 | 1;
+  }) {
+    return this.json("/cgi-bin/freepublish/batchget", {
+      method: "POST",
+      body: {
+        offset: input.offset,
+        count: input.count,
+        no_content: input.noContent ?? 0,
+      },
+    });
+  }
+
+  deletePublishedArticle(input: { articleId: string; index?: number }) {
+    return this.json("/cgi-bin/freepublish/delete", {
+      method: "POST",
+      body: {
+        article_id: input.articleId,
+        index: input.index,
+      },
+    });
+  }
+
   listMaterials(input: {
     type: "image" | "voice" | "video" | "news";
     offset: number;

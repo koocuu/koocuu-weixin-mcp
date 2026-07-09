@@ -37,15 +37,16 @@ export function createMcpServer() {
   server.registerPrompt(
     "wechat_article_workflow",
     {
-      title: "WeChat article draft workflow",
+      title: "WeChat article workflow",
       description:
-        "Guide an AI client through writing, formatting, image upload, and WeChat draft creation.",
+        "Guide an AI client through writing, formatting, image upload, draft creation, review, and optional publishing.",
       argsSchema: {
         topic: z.string().min(1),
         audience: z.string().optional(),
+        publish: z.boolean().optional(),
       },
     },
-    ({ topic, audience }) => ({
+    ({ topic, audience, publish }) => ({
       messages: [
         {
           role: "user",
@@ -54,7 +55,10 @@ export function createMcpServer() {
             text: [
               `请围绕“${topic}”写一篇微信公众号文章。`,
               audience ? `目标读者：${audience}。` : undefined,
-              "流程：先生成大纲和正文；调用 wechat_render_article_html 排版；如需图片，先上传正文图或封面图；最后只创建草稿，不要发布或群发。",
+              "流程：先生成大纲、标题、摘要和正文；调用 wechat_render_article_html 排版；如需图片，先上传正文图或封面图；然后创建草稿并读取草稿做最终检查。",
+              publish
+                ? "如果部署环境已开启发布能力，并且内容检查通过，可以调用 wechat_publish_draft；发布调用必须显式传 confirm: true 和 dryRun: false。"
+                : "默认只创建草稿，不要发布或群发。",
             ]
               .filter(Boolean)
               .join("\n"),

@@ -61,3 +61,7 @@ export function getRedisConfig() {
 export function getPublicBaseUrl() {
   return optionalString("PUBLIC_BASE_URL") ?? "https://weixin.koocuu.com";
 }
+
+export function isWechatPublishingEnabled() {
+  return optionalString("WECHAT_ENABLE_PUBLISH") === "true";
+}

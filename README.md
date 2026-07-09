@@ -1,36 +1,91 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# koocuu-weixin-mcp
 
-## Getting Started
+Remote MCP server for managing a WeChat Official Account from AI clients such as Claude, Codex, and ChatGPT.
 
-First, run the development server:
+The project is an independent Next.js app intended for Vercel deployment at:
+
+- MCP endpoint: `https://weixin.koocuu.com/api/mcp`
+- WeChat callback: `https://weixin.koocuu.com/api/wechat/callback`
+- Health check: `https://weixin.koocuu.com/api/health`
+
+## What It Can Do
+
+- Render WeChat-friendly article HTML from Markdown or HTML.
+- Upload article images and permanent image materials.
+- Create, update, read, list, and delete drafts.
+- Read and replace custom menus.
+- Create QR code tickets.
+- Publish drafts through WeChat freepublish APIs when explicitly enabled.
+- Check publish status and list/delete published articles.
+- Handle the basic WeChat callback verification flow and optional plain text auto-reply.
+
+The server is designed for a single owner account. It does not implement multi-user OAuth or account isolation.
+
+## Safety Model
+
+Publishing and deletion are high-risk operations.
+
+- Risky tools default to `dryRun: true`.
+- Risky tools require `confirm: true` and `dryRun: false` to execute.
+- Publishing tools are additionally disabled unless `WECHAT_ENABLE_PUBLISH=true`.
+- There are no mass-send tools in the default MCP surface.
+
+For fully automated publishing, configure the deployment with `WECHAT_ENABLE_PUBLISH=true`, then make the scheduled AI task explicitly pass `confirm: true` and `dryRun: false` only after it has created and reviewed the draft payload.
+
+## Environment Variables
+
+Required:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+MCP_BEARER_TOKEN=
+WECHAT_APP_ID=
+WECHAT_APP_SECRET=
+WECHAT_TOKEN=
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Recommended:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+PUBLIC_BASE_URL=https://weixin.koocuu.com
+MCP_ALLOWED_ORIGINS=
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Optional:
 
-## Learn More
+```bash
+WECHAT_MESSAGE_MODE=plain
+WECHAT_ENCODING_AES_KEY=
+WECHAT_AUTO_REPLY_TEXT=
+WECHAT_ENABLE_PUBLISH=false
+```
 
-To learn more about Next.js, take a look at the following resources:
+Use Upstash Redis on Vercel if you want access tokens to survive serverless cold starts. Without Redis, the server falls back to an in-memory token store.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Suggested Automation Flow
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Pick one topic from the topic library.
+2. Generate the article outline, body, digest, and cover direction.
+3. Upload the cover image as a permanent image material.
+4. Upload inline images before placing them in article HTML.
+5. Create a draft with `wechat_create_article_draft`.
+6. Read the draft back with `wechat_get_draft` for a final sanity check.
+7. Publish with `wechat_publish_draft` only when publishing is enabled and the automation intentionally passes `confirm: true` and `dryRun: false`.
+8. Poll `wechat_get_publish_status` until WeChat reports success or failure.
 
-## Deploy on Vercel
+## Local Development
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+pnpm install
+pnpm dev
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Verification:
+
+```bash
+pnpm typecheck
+pnpm lint
+pnpm test
+```
+
