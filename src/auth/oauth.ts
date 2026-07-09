@@ -1,4 +1,9 @@
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 
 import { getMcpConfig, getPublicBaseUrl } from "@/src/config/env";
 import { getTokenStore } from "@/src/wechat/token-store";
@@ -20,6 +25,8 @@ type AuthorizationCode = {
   codeChallenge?: string;
   scope?: string;
   resource?: string;
+  expiresAt?: number;
+  nonce?: string;
 };
 
 const oauthScope = "mcp:tools";
@@ -57,16 +64,52 @@ function base64url(buffer: Buffer) {
     .replace(/=+$/g, "");
 }
 
+function base64urlJson(value: unknown) {
+  return base64url(Buffer.from(JSON.stringify(value)));
+}
+
+function decodeBase64urlJson<T>(value: string) {
+  return JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as T;
+}
+
+function codeSigningSecret() {
+  const { bearerToken } = getMcpConfig();
+  return createHash("sha256").update(bearerToken).digest();
+}
+
+function signCodePayload(payload: string) {
+  return base64url(createHmac("sha256", codeSigningSecret()).update(payload).digest());
+}
+
+function createAuthorizationCode(data: AuthorizationCode) {
+  const payload = base64urlJson({
+    ...data,
+    expiresAt: Math.floor(Date.now() / 1000) + 600,
+    nonce: randomUUID(),
+  });
+  return `${payload}.${signCodePayload(payload)}`;
+}
+
+function readAuthorizationCode(code: string) {
+  const [payload, signature] = code.split(".");
+  if (!payload || !signature || !safeEqual(signature, signCodePayload(payload))) {
+    return undefined;
+  }
+
+  const data = decodeBase64urlJson<AuthorizationCode>(payload);
+  if (!data.expiresAt || data.expiresAt <= Math.floor(Date.now() / 1000)) {
+    return undefined;
+  }
+
+  return data;
+}
+
 function pkceChallenge(codeVerifier: string) {
   return base64url(createHash("sha256").update(codeVerifier).digest());
 }
 
 function clientKey(clientId: string) {
   return `koocuu-weixin-mcp:oauth:client:${clientId}`;
-}
-
-function codeKey(code: string) {
-  return `koocuu-weixin-mcp:oauth:code:${code}`;
 }
 
 async function getClient(clientId: string) {
@@ -207,6 +250,15 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#39;");
 }
 
+function isAllowedFallbackRedirectUri(redirectUri: string) {
+  try {
+    const url = new URL(redirectUri);
+    return url.protocol === "https:" && url.hostname === "claude.ai";
+  } catch {
+    return false;
+  }
+}
+
 export async function handleOAuthAuthorizeGet(request: Request) {
   const url = new URL(request.url);
   return renderAuthorizeForm(url.searchParams);
@@ -229,24 +281,21 @@ export async function handleOAuthAuthorizePost(request: Request) {
   const scope = form.get("scope");
 
   const client = await getClient(clientId);
-  if (!client) {
+  if (!client && !isAllowedFallbackRedirectUri(redirectUri)) {
     return authorizationError("Unknown OAuth client.", 400);
   }
 
-  if (!client.redirect_uris.includes(redirectUri)) {
+  if (client && !client.redirect_uris.includes(redirectUri)) {
     return authorizationError("Unregistered redirect_uri.", 400);
   }
 
-  const code = randomUUID();
-  const codeData: AuthorizationCode = {
+  const code = createAuthorizationCode({
     clientId,
     redirectUri,
     codeChallenge: codeChallenge ? String(codeChallenge) : undefined,
     resource: resource ? String(resource) : undefined,
     scope: scope ? String(scope) : oauthScope,
-  };
-
-  await getTokenStore().set(codeKey(code), JSON.stringify(codeData), 600);
+  });
 
   const redirect = new URL(redirectUri);
   redirect.searchParams.set("code", code);
@@ -287,8 +336,7 @@ export async function handleOAuthToken(request: Request) {
     );
   }
 
-  const value = await getTokenStore().get(codeKey(code));
-  const codeData = value ? (JSON.parse(value) as AuthorizationCode) : undefined;
+  const codeData = readAuthorizationCode(code);
 
   if (!codeData || codeData.clientId !== clientId || codeData.redirectUri !== redirectUri) {
     return jsonResponse(
