@@ -4,6 +4,7 @@ import { z } from "zod";
 import { renderWechatArticle } from "@/src/article/format";
 import { isWechatPublishingEnabled } from "@/src/config/env";
 import { toolHandler } from "@/src/mcp/result";
+import { getOutboundIp } from "@/src/network/outbound-ip";
 import {
   disabledRiskyActionResult,
   riskyDryRunResult,
@@ -65,6 +66,22 @@ function toDraftArticle(input: ArticleInput): DraftArticle {
 }
 
 export function registerWechatTools(server: McpServer) {
+  server.registerTool(
+    "wechat_get_outbound_ip",
+    {
+      title: "Get outbound IP",
+      description:
+        "Detect the public outbound IP used by this MCP server. Use it for the WeChat Official Account API IP whitelist.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: true,
+      },
+    },
+    toolHandler(() => getOutboundIp()),
+  );
+
   server.registerTool(
     "wechat_create_article_draft",
     {

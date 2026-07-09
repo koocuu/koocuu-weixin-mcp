@@ -2,7 +2,12 @@
 
 Remote MCP server for managing a WeChat Official Account from AI clients such as Claude, Codex, and ChatGPT.
 
-The project is an independent Next.js app intended for Vercel deployment at:
+The project is an independent Next.js app. It can run on Vercel, but WeChat API
+IP whitelisting works best from a stable outbound IP. For zero recurring hosting
+cost, use the local Windows + Cloudflare Tunnel mode in
+[`docs/CLOUDFLARE_TUNNEL.md`](docs/CLOUDFLARE_TUNNEL.md).
+
+Default public URLs:
 
 - MCP endpoint: `https://weixin.koocuu.com/api/mcp`
 - WeChat callback: `https://weixin.koocuu.com/api/wechat/callback`
@@ -15,6 +20,7 @@ The project is an independent Next.js app intended for Vercel deployment at:
 - Create, update, read, list, and delete drafts.
 - Read and replace custom menus.
 - Create QR code tickets.
+- Detect the server outbound IP for WeChat API IP whitelist troubleshooting.
 - Publish drafts through WeChat freepublish APIs when explicitly enabled.
 - Check publish status and list/delete published articles.
 - Handle the basic WeChat callback verification flow and optional plain text auto-reply.
@@ -89,3 +95,15 @@ pnpm lint
 pnpm test
 ```
 
+## Local Tunnel Mode
+
+For a Windows computer that is reliably on during scheduled publishing windows:
+
+```powershell
+Copy-Item .env.local.example .env.local
+.\scripts\start-local.ps1 -Mode start -Port 3000
+```
+
+Then expose `http://127.0.0.1:3000` through Cloudflare Tunnel at
+`https://weixin.koocuu.com`. See
+[`docs/CLOUDFLARE_TUNNEL.md`](docs/CLOUDFLARE_TUNNEL.md).
