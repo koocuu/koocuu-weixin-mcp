@@ -13,6 +13,14 @@ Default public URLs:
 - WeChat callback: `https://weixin.koocuu.com/api/wechat/callback`
 - Health check: `https://weixin.koocuu.com/api/health`
 
+For clients that cannot set an `Authorization` header, use the query-token URL:
+
+```text
+https://weixin.koocuu.com/api/mcp?key=<MCP_BEARER_TOKEN>
+```
+
+Treat this URL as a secret. Anyone who has it can call the MCP tools.
+
 ## What It Can Do
 
 - Render WeChat-friendly article HTML from Markdown or HTML.
