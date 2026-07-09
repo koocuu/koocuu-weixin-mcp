@@ -180,7 +180,7 @@ export async function handleOAuthClientRegistration(request: Request) {
     grant_types: metadata.grant_types ?? ["authorization_code"],
     response_types: metadata.response_types ?? ["code"],
     client_name: metadata.client_name,
-    scope: metadata.scope ?? oauthScope,
+    scope: metadata.scope,
   };
 
   await saveClient(client);
@@ -250,10 +250,12 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#39;");
 }
 
+const fallbackRedirectHosts = new Set(["claude.ai", "claude.com"]);
+
 function isAllowedFallbackRedirectUri(redirectUri: string) {
   try {
     const url = new URL(redirectUri);
-    return url.protocol === "https:" && url.hostname === "claude.ai";
+    return url.protocol === "https:" && fallbackRedirectHosts.has(url.hostname);
   } catch {
     return false;
   }
@@ -289,12 +291,15 @@ export async function handleOAuthAuthorizePost(request: Request) {
     return authorizationError("Unregistered redirect_uri.", 400);
   }
 
+  // Only carry the scope the client actually asked for. Granting an
+  // unrequested scope makes strict clients (e.g. the MCP Python SDK behind
+  // claude.ai) reject the token as "unauthorized scopes" after exchange.
   const code = createAuthorizationCode({
     clientId,
     redirectUri,
     codeChallenge: codeChallenge ? String(codeChallenge) : undefined,
     resource: resource ? String(resource) : undefined,
-    scope: scope ? String(scope) : oauthScope,
+    scope: scope ? String(scope) : undefined,
   });
 
   const redirect = new URL(redirectUri);
@@ -359,10 +364,15 @@ export async function handleOAuthToken(request: Request) {
   }
 
   const { bearerToken } = getMcpConfig();
-  return jsonResponse({
-    access_token: bearerToken,
-    token_type: "Bearer",
-    expires_in: 31536000,
-    scope: codeData.scope ?? oauthScope,
-  });
+  return jsonResponse(
+    {
+      access_token: bearerToken,
+      token_type: "Bearer",
+      expires_in: 31536000,
+      // Per RFC 6749 the scope field is omitted when it matches the request;
+      // echoing a scope the client never requested breaks strict clients.
+      ...(codeData.scope ? { scope: codeData.scope } : {}),
+    },
+    { headers: { "Cache-Control": "no-store", Pragma: "no-cache" } },
+  );
 }
