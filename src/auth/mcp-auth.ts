@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 
 import { getMcpConfig } from "@/src/config/env";
+import { getOAuthProtectedResourceMetadataUrl } from "@/src/auth/oauth";
 
 function safeEqual(left: string, right: string) {
   const leftBuffer = Buffer.from(left);
@@ -28,7 +29,7 @@ export function authorizeMcpRequest(request: Request) {
         status: 401,
         headers: {
           "Content-Type": "application/json",
-          "WWW-Authenticate": 'Bearer realm="koocuu-weixin-mcp"',
+          "WWW-Authenticate": `Bearer realm="koocuu-weixin-mcp", resource_metadata="${getOAuthProtectedResourceMetadataUrl()}"`,
         },
       },
     );
