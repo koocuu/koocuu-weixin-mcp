@@ -185,10 +185,10 @@ function renderAuthorizeForm(params: URLSearchParams) {
       <form method="post" action="/authorize">
         ${hidden}
         <label for="secret">MCP bearer token</label>
-        <input id="secret" name="secret" type="password" autocomplete="current-password" required autofocus />
+        <input id="secret" name="secret" type="password" autocomplete="one-time-code" spellcheck="false" required autofocus />
         <button type="submit">Authorize Claude</button>
       </form>
-      <p class="hint">Only approve this if you initiated the connector setup.</p>
+      <p class="hint">Paste the MCP bearer token, not your WeChat AppSecret or a site password.</p>
     </main>
   </body>
 </html>`,
