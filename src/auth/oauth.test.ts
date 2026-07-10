@@ -141,6 +141,7 @@ describe("OAuth authorize fallback redirect", () => {
     });
     expect(location.origin).toBe("https://claude.com");
     expect(location.searchParams.get("state")).toBe("abc");
+    expect(location.searchParams.get("iss")).toBe("https://weixin.koocuu.com");
   });
 
   it("still rejects arbitrary redirect hosts for unregistered clients", async () => {

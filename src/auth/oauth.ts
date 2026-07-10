@@ -473,6 +473,8 @@ export async function handleOAuthAuthorizePost(request: Request) {
 
   const redirect = new URL(redirectUri);
   redirect.searchParams.set("code", code);
+  // RFC 9207: authorization response must include iss matching AS metadata.
+  redirect.searchParams.set("iss", baseUrl());
   if (state) {
     redirect.searchParams.set("state", String(state));
   }
@@ -482,6 +484,7 @@ export async function handleOAuthAuthorizePost(request: Request) {
     clientIdHash: hashForLog(clientId),
     redirectUri,
     codeHash: hashForLog(code),
+    iss: baseUrl(),
   });
 
   return Response.redirect(redirect, 302);

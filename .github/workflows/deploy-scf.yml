@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 env:
-  SCF_REGION: ap-hongkong
+  SCF_REGION: ap-guangzhou
   SCF_NAMESPACE: default
   SCF_FUNCTION_NAME: koocuu-weixin-mcp
   TCR_REGISTRY: ccr.ccs.tencentyun.com
@@ -100,16 +100,15 @@ jobs:
             tccli scf UpdateFunctionCode \
               --FunctionName "$SCF_FUNCTION_NAME" \
               --Namespace "$SCF_NAMESPACE" \
-              --CodeSource Image \
               --ImageConfig "$IMAGE_CONFIG"
           else
+            # CustomImage HTTP functions reject CodeSource=Image; pass ImageConfig via Code only.
             tccli scf CreateFunction \
               --FunctionName "$SCF_FUNCTION_NAME" \
               --Namespace "$SCF_NAMESPACE" \
               --Description "Koocuu Weixin remote MCP" \
               --Type HTTP \
               --Runtime CustomImage \
-              --CodeSource Image \
               --Code "$CODE" \
               --MemorySize 512 \
               --Timeout 60 \

@@ -3,7 +3,7 @@ main = "src/index.js"
 compatibility_date = "2026-07-10"
 
 [vars]
-SCF_ORIGIN = "https://replace-with-your-scf-function-url.tencentscf.com"
+SCF_ORIGIN = "https://1302249545-lgmt20iu8p.ap-guangzhou.tencentscf.com"
 
 [[routes]]
 pattern = "weixin.koocuu.com"
