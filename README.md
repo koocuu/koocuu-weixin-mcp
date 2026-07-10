@@ -7,19 +7,25 @@ IP whitelisting works best from a stable outbound IP. For zero recurring hosting
 cost, use the local Windows + Cloudflare Tunnel mode in
 [`docs/CLOUDFLARE_TUNNEL.md`](docs/CLOUDFLARE_TUNNEL.md).
 
+## Tencent SCF Production
+
+The production target is a Tencent SCF WebServer image function in Hong Kong,
+with a fixed public egress IP for the WeChat API allowlist. GitHub Actions builds
+the image and deploys the function; a small Cloudflare Worker keeps
+`weixin.koocuu.com` as the public hostname without using a local tunnel.
+
+See [`docs/tencent-scf.md`](docs/tencent-scf.md) for the one-time account setup,
+required GitHub secrets, deployment workflow, and cutover checks.
+
 Default public URLs:
 
 - MCP endpoint: `https://weixin.koocuu.com/api/mcp`
 - WeChat callback: `https://weixin.koocuu.com/api/wechat/callback`
 - Health check: `https://weixin.koocuu.com/api/health`
 
-For clients that cannot set an `Authorization` header, use the query-token URL:
-
-```text
-https://weixin.koocuu.com/api/mcp?key=<MCP_BEARER_TOKEN>
-```
-
-Treat this URL as a secret. Anyone who has it can call the MCP tools.
+Claude custom connectors should use the MCP endpoint above. The connector will
+open the OAuth authorization page once; paste `MCP_BEARER_TOKEN` there to approve
+the connection.
 
 ## What It Can Do
 
@@ -33,7 +39,9 @@ Treat this URL as a secret. Anyone who has it can call the MCP tools.
 - Check publish status and list/delete published articles.
 - Handle the basic WeChat callback verification flow and optional plain text auto-reply.
 
-The server is designed for a single owner account. It does not implement multi-user OAuth or account isolation.
+The server is designed for a single owner account. OAuth is only used to let MCP
+clients obtain a bearer token for this owner-operated server; it is not a
+multi-user account system.
 
 ## Safety Model
 

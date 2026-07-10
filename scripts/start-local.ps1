@@ -25,16 +25,22 @@ if (-not (Test-Path "node_modules")) {
   pnpm install --frozen-lockfile
 }
 
+$NextCmd = Join-Path $RepoRoot "node_modules\.bin\next.cmd"
+if (-not (Test-Path $NextCmd)) {
+  Write-Host "Missing Next.js binary at $NextCmd. Run pnpm install first." -ForegroundColor Red
+  exit 1
+}
+
 if ($Mode -eq "dev") {
   Write-Host "Starting Koocuu Weixin MCP in dev mode on http://127.0.0.1:$Port"
-  pnpm exec next dev -p $Port -H 127.0.0.1
+  & $NextCmd dev -p $Port -H 127.0.0.1
   exit $LASTEXITCODE
 }
 
 if (-not $SkipBuild) {
-  pnpm build
+  & $NextCmd build
 }
 
 Write-Host "Starting Koocuu Weixin MCP on http://127.0.0.1:$Port"
-pnpm exec next start -p $Port -H 127.0.0.1
+& $NextCmd start -p $Port -H 127.0.0.1
 exit $LASTEXITCODE
