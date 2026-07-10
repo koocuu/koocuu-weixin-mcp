@@ -97,10 +97,12 @@ jobs:
           tccli configure set region "$SCF_REGION"
 
           if tccli scf GetFunction --FunctionName "$SCF_FUNCTION_NAME" --Namespace "$SCF_NAMESPACE" >/dev/null 2>&1; then
+            # UpdateFunctionCode has no top-level ImageConfig parameter; wrap it in Code
+            # just like CreateFunction (tccli rejects --ImageConfig with "Unknown options").
             tccli scf UpdateFunctionCode \
               --FunctionName "$SCF_FUNCTION_NAME" \
               --Namespace "$SCF_NAMESPACE" \
-              --ImageConfig "$IMAGE_CONFIG"
+              --Code "$CODE"
           else
             # CustomImage HTTP functions reject CodeSource=Image; pass ImageConfig via Code only.
             tccli scf CreateFunction \
