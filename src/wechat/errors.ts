@@ -9,6 +9,10 @@ export class WechatApiError extends Error {
   }
 }
 
+function stackHead(error: Error) {
+  return error.stack?.split("\n").slice(0, 5).join("\n");
+}
+
 export function serializeError(error: unknown) {
   if (error instanceof WechatApiError) {
     return {
@@ -23,6 +27,7 @@ export function serializeError(error: unknown) {
     return {
       name: error.name,
       message: error.message,
+      stack: stackHead(error),
     };
   }
 
