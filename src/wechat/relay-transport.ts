@@ -13,11 +13,25 @@ type RelayHttpResult = {
   bodyEncoding: "utf8" | "base64";
 };
 
+function assertHeaderSafeSecret(secret: string) {
+  for (let i = 0; i < secret.length; i += 1) {
+    if (secret.charCodeAt(i) > 255) {
+      throw new WechatApiError(
+        "WECHAT_RELAY_SECRET (or MCP_BEARER_TOKEN) contains a non-ASCII " +
+          `character at position ${i}. The env var was probably set to a ` +
+          "description instead of the real token — re-paste the actual secret.",
+        {},
+      );
+    }
+  }
+}
+
 async function callRelay<T>(payload: unknown): Promise<T> {
   const relay = getWechatRelayConfig();
   if (!relay) {
     throw new WechatApiError("WECHAT_RELAY_URL is not configured.", {});
   }
+  assertHeaderSafeSecret(relay.secret);
 
   const response = await fetch(`${relay.url}/api/wechat-relay`, {
     method: "POST",
