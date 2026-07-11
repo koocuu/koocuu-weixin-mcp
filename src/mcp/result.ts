@@ -30,6 +30,9 @@ export function toolHandler<T>(handler: (input: T) => Promise<unknown> | unknown
     try {
       return jsonToolResult(await handler(input));
     } catch (error) {
+      // Surface tool failures in server logs (Vercel/CLS) with the stack;
+      // the MCP result only reaches the model, not the operator.
+      console.error("[tool-error]", JSON.stringify(serializeError(error)));
       return errorToolResult(error);
     }
   };
