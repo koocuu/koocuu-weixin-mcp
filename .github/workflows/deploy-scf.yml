@@ -96,11 +96,28 @@ jobs:
           tccli configure set secretKey "$TENCENTCLOUD_SECRET_KEY"
           tccli configure set region "$SCF_REGION"
 
+          # SCF mutations are async; the function stays in Updating/Creating for a
+          # while and rejects further mutations with FailedOperation until Active.
+          wait_for_active() {
+            for _ in $(seq 1 60); do
+              STATUS=$(tccli scf GetFunction --FunctionName "$SCF_FUNCTION_NAME" --Namespace "$SCF_NAMESPACE" | jq -r '.Status')
+              case "$STATUS" in
+                Active) return 0 ;;
+                *Failed*) echo "Function entered status $STATUS" && return 1 ;;
+                *) echo "Function status: $STATUS, waiting..." && sleep 5 ;;
+              esac
+            done
+            echo "Timed out waiting for function to become Active"
+            return 1
+          }
+
           if tccli scf GetFunction --FunctionName "$SCF_FUNCTION_NAME" --Namespace "$SCF_NAMESPACE" >/dev/null 2>&1; then
+            # UpdateFunctionCode has no top-level ImageConfig parameter; wrap it in Code
+            # just like CreateFunction (tccli rejects --ImageConfig with "Unknown options").
             tccli scf UpdateFunctionCode \
               --FunctionName "$SCF_FUNCTION_NAME" \
               --Namespace "$SCF_NAMESPACE" \
-              --ImageConfig "$IMAGE_CONFIG"
+              --Code "$CODE"
           else
             # CustomImage HTTP functions reject CodeSource=Image; pass ImageConfig via Code only.
             tccli scf CreateFunction \
@@ -117,6 +134,8 @@ jobs:
               --Environment "$ENVIRONMENT"
           fi
 
+          wait_for_active
+
           tccli scf UpdateFunctionConfiguration \
             --FunctionName "$SCF_FUNCTION_NAME" \
             --Namespace "$SCF_NAMESPACE" \
@@ -125,6 +144,8 @@ jobs:
             --InitTimeout 30 \
             --PublicNetConfig "$PUBLIC_NET" \
             --Environment "$ENVIRONMENT"
+
+          wait_for_active
 
       - name: Ensure public Function URL exists
         id: function_url
