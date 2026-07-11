@@ -12,6 +12,8 @@ export type RelayUploadRequest = {
   op: "upload";
   kind: "article_image" | "permanent";
   mediaUrl: string;
+  /** Access token from MCP entry (Vercel); required so SCF need not use local AppSecret. */
+  accessToken: string;
   filename?: string;
   type?: "image" | "thumb" | "voice" | "video";
   videoTitle?: string;

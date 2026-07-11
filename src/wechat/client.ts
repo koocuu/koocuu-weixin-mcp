@@ -395,10 +395,12 @@ export class WechatClient {
 
   async uploadArticleImageFromUrl(input: { imageUrl: string; filename?: string }) {
     if (this.useRelay) {
+      const accessToken = await this.latestAccessToken();
       return relayUpload({
         kind: "article_image",
         mediaUrl: input.imageUrl,
         filename: input.filename,
+        accessToken,
       });
     }
     return this.withDownloadedFile(input.imageUrl, input.filename, (filepath) =>
@@ -414,6 +416,7 @@ export class WechatClient {
     videoIntroduction?: string;
   }) {
     if (this.useRelay) {
+      const accessToken = await this.latestAccessToken();
       return relayUpload({
         kind: "permanent",
         mediaUrl: input.mediaUrl,
@@ -421,6 +424,7 @@ export class WechatClient {
         type: input.type,
         videoTitle: input.videoTitle,
         videoIntroduction: input.videoIntroduction,
+        accessToken,
       });
     }
 
@@ -510,7 +514,14 @@ export class WechatClient {
   }
 
   private async downloadToTempFile(mediaUrl: string, filename?: string) {
-    const response = await fetch(mediaUrl);
+    const response = await fetch(mediaUrl, {
+      redirect: "follow",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (compatible; koocuu-weixin-mcp/1.0; +https://weixin.koocuu.com)",
+        Accept: "image/*,application/octet-stream,*/*",
+      },
+    });
     if (!response.ok) {
       throw new WechatApiError("Failed to download media URL before upload.", {
         mediaUrl,

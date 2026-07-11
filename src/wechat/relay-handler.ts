@@ -1,4 +1,7 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { extname, join } from "node:path";
 
 import { getWechatRelaySecret } from "@/src/config/env";
 import { getOutboundIp } from "@/src/network/outbound-ip";
@@ -56,6 +59,60 @@ function assertSafeWechatPath(path: string) {
   }
 }
 
+function inferFilename(url: string) {
+  try {
+    return new URL(url).pathname.split("/").filter(Boolean).pop() || "media.bin";
+  } catch {
+    return "media.bin";
+  }
+}
+
+function extensionFromContentType(contentType: string) {
+  if (contentType.includes("jpeg")) return ".jpg";
+  if (contentType.includes("png")) return ".png";
+  if (contentType.includes("gif")) return ".gif";
+  if (contentType.includes("webp")) return ".webp";
+  if (contentType.includes("mp4")) return ".mp4";
+  if (contentType.includes("mpeg")) return ".mp3";
+  return "";
+}
+
+async function downloadMedia(mediaUrl: string, filename?: string) {
+  const response = await fetch(mediaUrl, {
+    redirect: "follow",
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (compatible; koocuu-weixin-mcp-relay/1.0; +https://weixin.koocuu.com)",
+      Accept: "image/*,application/octet-stream,*/*",
+    },
+  });
+  if (!response.ok) {
+    throw new WechatApiError("Failed to download media URL on relay.", {
+      mediaUrl,
+      status: response.status,
+    }, response.status);
+  }
+
+  const contentType = response.headers.get("content-type") ?? "application/octet-stream";
+  const sourceName = filename ?? inferFilename(mediaUrl);
+  const extension = extname(sourceName) || extensionFromContentType(contentType) || ".bin";
+  const safeName = `${sourceName.replace(/[^a-zA-Z0-9._-]/g, "_") || "media"}${
+    extname(sourceName) ? "" : extension
+  }`;
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.byteLength === 0) {
+    throw new WechatApiError("Downloaded media was empty.", { mediaUrl });
+  }
+  if (buffer.byteLength > 2 * 1024 * 1024) {
+    throw new WechatApiError("Downloaded media exceeds 2MB relay limit.", {
+      mediaUrl,
+      byteLength: buffer.byteLength,
+    });
+  }
+
+  return { buffer, contentType, filename: safeName };
+}
+
 async function handleHttp(input: RelayHttpRequest) {
   assertSafeWechatPath(input.path);
   const url = new URL(input.path, wechatApiBase);
@@ -95,24 +152,114 @@ async function handleHttp(input: RelayHttpRequest) {
   });
 }
 
+async function postWechatMultipart(input: {
+  path: string;
+  accessToken: string;
+  query?: Record<string, string>;
+  filename: string;
+  contentType: string;
+  buffer: Buffer;
+  extraFields?: Record<string, string>;
+}) {
+  const url = new URL(input.path, wechatApiBase);
+  url.searchParams.set("access_token", input.accessToken);
+  for (const [key, value] of Object.entries(input.query ?? {})) {
+    url.searchParams.set(key, value);
+  }
+
+  // Write to disk then rebuild File for better multipart filename compatibility.
+  const dir = join(tmpdir(), "koocuu-weixin-mcp-relay");
+  const filepath = join(dir, `${randomUUID()}-${input.filename}`);
+  await mkdir(dir, { recursive: true });
+  await writeFile(filepath, input.buffer);
+
+  try {
+    const bytes = await readFile(filepath);
+    const form = new FormData();
+    form.append(
+      "media",
+      new Blob([new Uint8Array(bytes)], { type: input.contentType }),
+      input.filename,
+    );
+    for (const [key, value] of Object.entries(input.extraFields ?? {})) {
+      form.append(key, value);
+    }
+
+    const response = await fetch(url, { method: "POST", body: form });
+    const text = await response.text();
+    let data: unknown = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      throw new WechatApiError("WeChat upload returned non-JSON.", { text }, response.status);
+    }
+
+    if (
+      data &&
+      typeof data === "object" &&
+      "errcode" in data &&
+      typeof (data as { errcode: unknown }).errcode === "number" &&
+      (data as { errcode: number }).errcode !== 0
+    ) {
+      const err = data as { errcode: number; errmsg?: string };
+      throw new WechatApiError(
+        err.errmsg ?? `WeChat upload failed with errcode ${err.errcode}`,
+        data,
+        response.status,
+      );
+    }
+
+    if (!response.ok) {
+      throw new WechatApiError("WeChat upload HTTP failed.", data, response.status);
+    }
+
+    return data;
+  } finally {
+    await unlink(filepath).catch(() => undefined);
+  }
+}
+
 async function handleUpload(input: RelayUploadRequest) {
-  // Lazy import avoids a cycle with WechatClient → relay-transport.
-  const { createWechatClient } = await import("@/src/wechat/client");
-  const client = createWechatClient();
+  if (!input.accessToken) {
+    throw new WechatApiError(
+      "upload requires accessToken from the MCP entry (Vercel). Do not rely on SCF AppSecret.",
+      { hint: "Pass accessToken obtained via relay /cgi-bin/token." },
+      400,
+    );
+  }
+
+  const media = await downloadMedia(input.mediaUrl, input.filename);
+
   if (input.kind === "article_image") {
-    const data = await client.uploadArticleImageFromUrl({
-      imageUrl: input.mediaUrl,
-      filename: input.filename,
+    const data = await postWechatMultipart({
+      path: "/cgi-bin/media/uploadimg",
+      accessToken: input.accessToken,
+      filename: media.filename,
+      contentType: media.contentType,
+      buffer: media.buffer,
     });
     return Response.json({ status: 200, data });
   }
 
-  const data = await client.uploadPermanentMaterialFromUrl({
-    mediaUrl: input.mediaUrl,
-    filename: input.filename,
-    type: input.type ?? "image",
-    videoTitle: input.videoTitle,
-    videoIntroduction: input.videoIntroduction,
+  const type = input.type ?? "image";
+  const extraFields =
+    type === "video"
+      ? {
+          description: JSON.stringify({
+            title: input.videoTitle ?? input.filename ?? "video",
+            introduction: input.videoIntroduction ?? "",
+          }),
+        }
+      : undefined;
+
+  const data = await postWechatMultipart({
+    path: "/cgi-bin/material/add_material",
+    accessToken: input.accessToken,
+    query: { type },
+    filename: media.filename,
+    contentType: media.contentType,
+    buffer: media.buffer,
+    extraFields,
   });
   return Response.json({ status: 200, data });
 }
@@ -156,7 +303,7 @@ export async function handleWechatRelayPost(request: Request) {
           message: error.message,
           details: error.details,
         },
-        { status: error.status ?? 502 },
+        { status: error.status && error.status >= 400 ? error.status : 502 },
       );
     }
     const message = error instanceof Error ? error.message : String(error);
