@@ -38,6 +38,10 @@ export function writeOAuthDebugLog(event: string, fields: OAuthDebugFields = {})
     ...fields,
   };
 
+  // stdout is the only channel SCF ships to CLS; the file under /tmp is
+  // invisible from the console and dies with the container.
+  console.log(`[oauth-debug] ${JSON.stringify(row)}`);
+
   void mkdir(path.dirname(logPath()), { recursive: true })
     .then(() => appendFile(logPath(), `${JSON.stringify(row)}\n`, "utf8"))
     .catch(() => {
