@@ -65,3 +65,21 @@ export function getPublicBaseUrl() {
 export function isWechatPublishingEnabled() {
   return optionalString("WECHAT_ENABLE_PUBLISH") === "true";
 }
+
+/** Shared secret that authenticates Vercel → SCF WeChat relay calls. */
+export function getWechatRelaySecret() {
+  return optionalString("WECHAT_RELAY_SECRET") ?? optionalString("MCP_BEARER_TOKEN");
+}
+
+/**
+ * When set on the MCP entry (Vercel), all WeChat API traffic is forwarded to
+ * this SCF relay so WeChat sees the fixed Guangzhou egress IP.
+ */
+export function getWechatRelayConfig() {
+  const url = optionalString("WECHAT_RELAY_URL");
+  const secret = getWechatRelaySecret();
+  if (!url || !secret) {
+    return undefined;
+  }
+  return { url: url.replace(/\/$/, ""), secret };
+}

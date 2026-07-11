@@ -6,6 +6,10 @@ import { isWechatPublishingEnabled } from "@/src/config/env";
 import { toolHandler } from "@/src/mcp/result";
 import { getOutboundIp } from "@/src/network/outbound-ip";
 import {
+  isWechatRelayEnabled,
+  relayOutboundIp,
+} from "@/src/wechat/relay-transport";
+import {
   disabledRiskyActionResult,
   riskyDryRunResult,
   shouldExecuteRiskyAction,
@@ -71,7 +75,7 @@ export function registerWechatTools(server: McpServer) {
     {
       title: "Get outbound IP",
       description:
-        "Detect the public outbound IP used by this MCP server. Use it for the WeChat Official Account API IP whitelist.",
+        "Detect the public outbound IP used for WeChat API calls. In hybrid mode this returns the SCF fixed egress IP via the relay.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -79,7 +83,9 @@ export function registerWechatTools(server: McpServer) {
         openWorldHint: true,
       },
     },
-    toolHandler(() => getOutboundIp()),
+    toolHandler(() =>
+      isWechatRelayEnabled() ? relayOutboundIp() : getOutboundIp(),
+    ),
   );
 
   server.registerTool(

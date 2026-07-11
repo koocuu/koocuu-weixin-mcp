@@ -50,27 +50,25 @@ a public Function URL.
 Important: CustomImage HTTP functions must pass `Code.ImageConfig` only. Do **not**
 set `CodeSource=Image` (Tencent rejects it as `InvalidParameterValue.CodeSource`).
 
-## Cloudflare edge
+## Hybrid architecture (Vercel MCP + SCF WeChat egress)
 
-After the SCF workflow succeeds, verify `/api/health` on the Function URL. Bind
-`weixin.koocuu.com` to Worker `koocuu-weixin-mcp-proxy` with:
+Claude / Cursor connect to Vercel (`koocuu-weixin.vercel.app`). Vercel sets:
 
-- `SCF_ORIGIN=<Function URL>`
-- strip upstream `Content-Disposition` (SCF injects `attachment`)
-- append RFC 9207 `iss` on OAuth `302` Location if missing
+- `WECHAT_RELAY_URL=https://weixin.koocuu.com` (or the SCF Function URL)
+- `WECHAT_RELAY_SECRET` (defaults to `MCP_BEARER_TOKEN` if omitted)
+- `PUBLIC_BASE_URL=https://koocuu-weixin.vercel.app`
+
+SCF must **not** set `WECHAT_RELAY_URL` (direct WeChat egress). SCF receives
+`WECHAT_RELAY_SECRET` so `/api/wechat-relay` can authenticate Vercel.
 
 Do not point `weixin` at the SCF hostname with Cloudflare Full SSL; that causes
-525 because the SCF cert is `*.tencentscf.com`.
-
-## Known Claude Connect issue
-
-Local OAuth + MCP initialize succeed, but Claude.ai custom connector still fails
-after consent (`ofid_*`). See `进度.md` for the latest diagnosis and open items.
+525 because the SCF cert is `*.tencentscf.com`. Keep the Worker for callback + relay.
 
 ## Final checks
 
-1. Add the SCF fixed EIP to the WeChat API IP allowlist.
-2. Verify `https://weixin.koocuu.com/api/health`.
-3. Verify the WeChat callback URL and token without changing the existing callback URL.
-4. Delete and recreate the Claude connector using `https://weixin.koocuu.com/api/mcp`.
-5. Keep `WECHAT_ENABLE_PUBLISH=false` until draft and publish tools have been tested with dry-run and confirmation.
+1. Add the SCF fixed EIP (`129.204.3.249`) to the WeChat API IP allowlist.
+2. Deploy SCF with `/api/wechat-relay`, then set Vercel `WECHAT_RELAY_*` and redeploy.
+3. Claude connector URL: `https://koocuu-weixin.vercel.app/api/mcp`.
+4. `wechat_get_outbound_ip` should return the SCF fixed EIP.
+5. Verify WeChat callback `https://weixin.koocuu.com/api/wechat/callback`.
+6. Keep `WECHAT_ENABLE_PUBLISH=false` until draft/publish tools are dry-run tested.

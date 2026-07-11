@@ -7,6 +7,11 @@ import WechatAPI from "wechat-api";
 
 import { getWechatApiConfig } from "@/src/config/env";
 import { WechatApiError } from "@/src/wechat/errors";
+import {
+  isWechatRelayEnabled,
+  relayHttp,
+  relayUpload,
+} from "@/src/wechat/relay-transport";
 import { getTokenStore } from "@/src/wechat/token-store";
 
 const apiBaseUrl = "https://api.weixin.qq.com";
@@ -76,6 +81,7 @@ function toPromise<T>(
 export class WechatClient {
   private readonly sdk: WechatAPI;
   private readonly tokenKey: string;
+  private readonly useRelay: boolean;
 
   constructor(
     private readonly config: {
@@ -83,6 +89,7 @@ export class WechatClient {
       appSecret: string;
     },
   ) {
+    this.useRelay = isWechatRelayEnabled();
     this.tokenKey = `koocuu-weixin-mcp:wechat-api:access-token:${config.appId}`;
     this.sdk = new WechatAPI(
       config.appId,
@@ -106,12 +113,52 @@ export class WechatClient {
     );
   }
 
-  private latestAccessToken() {
-    return toPromise<WechatStoredAccessToken>((callback) =>
-      this.sdk.getLatestToken(callback),
-    ).then(
-      (token) => token.accessToken,
-    );
+  private async fetchAccessTokenViaRelay(): Promise<WechatStoredAccessToken> {
+    const result = await relayHttp({
+      method: "GET",
+      path: "/cgi-bin/token",
+      query: {
+        grant_type: "client_credential",
+        appid: this.config.appId,
+        secret: this.config.appSecret,
+      },
+    });
+    const data = result.body ? JSON.parse(result.body) : {};
+    if (result.status >= 400 || !data.access_token) {
+      throw new WechatApiError(
+        "Failed to fetch WeChat access_token via relay.",
+        data,
+        result.status,
+      );
+    }
+    assertWechatOk(data, result.status);
+    return {
+      accessToken: String(data.access_token),
+      expireTime:
+        Date.now() + Math.max(60, Number(data.expires_in ?? 7200) - 120) * 1000,
+    };
+  }
+
+  private async latestAccessToken() {
+    if (!this.useRelay) {
+      return toPromise<WechatStoredAccessToken>((callback) =>
+        this.sdk.getLatestToken(callback),
+      ).then((token) => token.accessToken);
+    }
+
+    const store = getTokenStore();
+    const cached = await store.get(this.tokenKey);
+    if (cached) {
+      const parsed = JSON.parse(cached) as WechatStoredAccessToken;
+      if (parsed.expireTime > Date.now() + 60_000) {
+        return parsed.accessToken;
+      }
+    }
+
+    const token = await this.fetchAccessTokenViaRelay();
+    const ttlSeconds = Math.max(60, Math.floor((token.expireTime - Date.now()) / 1000));
+    await store.set(this.tokenKey, JSON.stringify(token), ttlSeconds);
+    return token.accessToken;
   }
 
   private async url(path: string, query?: Record<string, QueryValue>) {
@@ -136,6 +183,26 @@ export class WechatClient {
       body?: unknown;
     } = {},
   ): Promise<T> {
+    if (this.useRelay) {
+      const accessToken = await this.latestAccessToken();
+      const result = await relayHttp({
+        method: options.method ?? (options.body ? "POST" : "GET"),
+        path,
+        query: {
+          access_token: accessToken,
+          ...options.query,
+        },
+        headers: options.body ? { "Content-Type": "application/json" } : undefined,
+        body: options.body ? JSON.stringify(options.body) : undefined,
+      });
+      const data = result.body ? JSON.parse(result.body) : {};
+      if (result.status >= 400) {
+        throw new WechatApiError("WeChat HTTP request failed.", data, result.status);
+      }
+      assertWechatOk(data, result.status);
+      return data as T;
+    }
+
     const response = await fetch(await this.url(path, options.query), {
       method: options.method ?? (options.body ? "POST" : "GET"),
       headers: options.body ? { "Content-Type": "application/json" } : undefined,
@@ -153,14 +220,23 @@ export class WechatClient {
   }
 
   getMenu() {
+    if (this.useRelay) {
+      return this.json("/cgi-bin/menu/get", { method: "GET" });
+    }
     return toPromise((callback) => this.sdk.getMenu(callback));
   }
 
   createMenu(menu: unknown) {
+    if (this.useRelay) {
+      return this.json("/cgi-bin/menu/create", { method: "POST", body: menu });
+    }
     return toPromise((callback) => this.sdk.createMenu(menu, callback));
   }
 
   deleteMenu() {
+    if (this.useRelay) {
+      return this.json("/cgi-bin/menu/delete", { method: "GET" });
+    }
     return toPromise((callback) => this.sdk.removeMenu(callback));
   }
 
@@ -251,12 +327,53 @@ export class WechatClient {
     offset: number;
     count: number;
   }) {
+    if (this.useRelay) {
+      return this.json("/cgi-bin/material/batchget_material", {
+        method: "POST",
+        body: {
+          type: input.type,
+          offset: input.offset,
+          count: input.count,
+        },
+      });
+    }
     return toPromise((callback) =>
       this.sdk.getMaterials(input.type, input.offset, input.count, callback),
     );
   }
 
   async getMaterial(mediaId: string, maxInlineBytes = 512_000) {
+    if (this.useRelay) {
+      const accessToken = await this.latestAccessToken();
+      const result = await relayHttp({
+        method: "POST",
+        path: "/cgi-bin/material/get_material",
+        query: { access_token: accessToken },
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ media_id: mediaId }),
+      });
+
+      if (result.bodyEncoding === "utf8") {
+        const data = result.body ? JSON.parse(result.body) : {};
+        if (result.status >= 400) {
+          throw new WechatApiError("WeChat HTTP request failed.", data, result.status);
+        }
+        assertWechatOk(data, result.status);
+        return data;
+      }
+
+      const buffer = Buffer.from(result.body, "base64");
+      return {
+        media_id: mediaId,
+        byte_length: buffer.byteLength,
+        base64: buffer.byteLength <= maxInlineBytes ? buffer.toString("base64") : undefined,
+        note:
+          buffer.byteLength > maxInlineBytes
+            ? "Binary material omitted because it is larger than maxInlineBytes."
+            : undefined,
+      };
+    }
+
     const data = await toPromise<unknown>((callback) =>
       this.sdk.getMaterial(mediaId, callback),
     );
@@ -277,6 +394,13 @@ export class WechatClient {
   }
 
   async uploadArticleImageFromUrl(input: { imageUrl: string; filename?: string }) {
+    if (this.useRelay) {
+      return relayUpload({
+        kind: "article_image",
+        mediaUrl: input.imageUrl,
+        filename: input.filename,
+      });
+    }
     return this.withDownloadedFile(input.imageUrl, input.filename, (filepath) =>
       toPromise((callback) => this.sdk.uploadImage(filepath, callback)),
     );
@@ -289,6 +413,17 @@ export class WechatClient {
     videoTitle?: string;
     videoIntroduction?: string;
   }) {
+    if (this.useRelay) {
+      return relayUpload({
+        kind: "permanent",
+        mediaUrl: input.mediaUrl,
+        filename: input.filename,
+        type: input.type,
+        videoTitle: input.videoTitle,
+        videoIntroduction: input.videoIntroduction,
+      });
+    }
+
     return this.withDownloadedFile(input.mediaUrl, input.filename, (filepath) => {
       if (input.type === "video") {
         return toPromise((callback) =>
@@ -321,15 +456,26 @@ export class WechatClient {
     sceneId?: number;
     sceneStr?: string;
   }) {
-    if (input.sceneStr) {
-      return this.json("/cgi-bin/qrcode/create", {
+    if (input.sceneStr || this.useRelay) {
+      const sceneId = input.sceneId ?? 1;
+      const actionInfo = input.sceneStr
+        ? { scene: { scene_str: input.sceneStr } }
+        : { scene: { scene_id: sceneId } };
+      const data = await this.json<{ ticket?: string }>("/cgi-bin/qrcode/create", {
         method: "POST",
         body: {
           expire_seconds: input.expireSeconds,
           action_name: input.actionName,
-          action_info: { scene: { scene_str: input.sceneStr } },
+          action_info: actionInfo,
         },
       });
+      if (data && typeof data === "object" && typeof data.ticket === "string") {
+        return {
+          ...data,
+          url: `https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=${encodeURIComponent(data.ticket)}`,
+        };
+      }
+      return data;
     }
 
     const sceneId = input.sceneId ?? 1;

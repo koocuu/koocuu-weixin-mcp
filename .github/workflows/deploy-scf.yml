@@ -82,6 +82,7 @@ jobs:
             '{Variables:[
               {Key:"PUBLIC_BASE_URL",Value:$base},
               {Key:"MCP_BEARER_TOKEN",Value:$bearer},
+              {Key:"WECHAT_RELAY_SECRET",Value:$bearer},
               {Key:"WECHAT_APP_ID",Value:$appId},
               {Key:"WECHAT_APP_SECRET",Value:$appSecret},
               {Key:"WECHAT_TOKEN",Value:$callbackToken},
